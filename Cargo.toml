@@ -1,0 +1,10 @@
+[package]
+name = "bevy_naga_reflect"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+
+[dependencies]
+bevy = { git = "https://github.com/bevyengine/bevy", branch = "main" }
+naga = { version = "22", features = ["wgsl-in", "serialize", "deserialize"] }
