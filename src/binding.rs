@@ -1,4 +1,3 @@
-use crate::module;
 use bevy::asset::Handle;
 use bevy::log::warn;
 use bevy::math::{Mat4, Vec2, Vec3, Vec4};
@@ -14,45 +13,18 @@ use bevy::render::renderer::RenderDevice;
 use bevy::render::texture::GpuImage;
 use naga::{ImageDimension, ScalarKind, VectorSize};
 
-pub fn bindings(
-    module: &naga::Module,
-    reflected: &dyn PartialReflect,
-    render_device: &RenderDevice,
-    gpu_images: &RenderAssets<GpuImage>,
-) -> Vec<(u32, OwnedBindingResource)> {
-    let mut bindings = Vec::new();
-
-    let module_bindings = module::bindings(module);
-
-    for binding in module_bindings {
-        let ty = binding.ty;
-        let Some(name) = binding.variable.name.as_ref() else {
-            continue;
-        };
-
-        if let Some(field_value) = find_field(reflected, name) {
-            let binding_idx = binding.binding;
-            let resource =
-                generate_binding_resource(field_value, module, &ty, render_device, gpu_images);
-            bindings.push((binding_idx, resource));
-        } else {
-            warn!("Field not found in reflected type: {:?}", name);
-        }
-    }
-
-    bindings
-}
-
-fn find_field<'a>(reflected: &'a dyn PartialReflect, field_name: &str) -> Option<&'a dyn PartialReflect> {
+pub(crate) fn find_field<'a>(
+    reflected: &'a dyn PartialReflect,
+    field_name: &str,
+) -> Option<&'a dyn PartialReflect> {
     let ReflectRef::Struct(reflect_struct) = reflected.reflect_ref() else {
-        warn!("Cannot reflect struct for binding",);
+        warn!("Cannot reflect struct for binding");
         return None;
     };
-
     reflect_struct.field(field_name)
 }
 
-fn generate_binding_resource(
+pub(crate) fn generate_binding_resource(
     field_value: &dyn PartialReflect,
     module: &naga::Module,
     ty: &naga::Type,
@@ -102,7 +74,7 @@ fn generate_binding_resource(
     }
 }
 
-fn write_to_buffer(
+pub(crate) fn write_to_buffer(
     field_value: &dyn PartialReflect,
     module: &naga::Module,
     ty: &naga::Type,
@@ -164,7 +136,7 @@ fn write_to_buffer(
                     panic!("Struct member has no name");
                 };
 
-                if let Some(field) = reflect_struct.field(&name) {
+                if let Some(field) = reflect_struct.field(name) {
                     let member_ty = &module.types[member.ty];
                     write_to_buffer(field, module, member_ty, buffer);
                 } else {
