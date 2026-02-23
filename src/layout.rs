@@ -10,8 +10,7 @@ use bevy::render::render_resource::{
     StorageTextureAccess, TextureFormat, TextureSampleType, TextureViewDimension,
 };
 use naga::{
-    AddressSpace, GlobalVariable, ImageClass, ImageDimension, ScalarKind, StorageAccess,
-    StorageFormat, StructMember, Type, TypeInner,
+    AddressSpace, ImageClass, ImageDimension, ScalarKind, StorageAccess, StorageFormat, TypeInner,
 };
 use std::num::NonZeroU64;
 
@@ -31,8 +30,11 @@ fn texture_sample_type(image_class: &ImageClass) -> (bool, TextureSampleType) {
             _ => panic!("Unsupported scalar kind {:?}", kind),
         },
         ImageClass::Depth { multi } => (*multi, TextureSampleType::Depth),
-        ImageClass::Storage { format, .. } => {
+        ImageClass::Storage { .. } => {
             (false, TextureSampleType::Float { filterable: false })
+        }
+        ImageClass::External => {
+            (false, TextureSampleType::Float { filterable: true })
         }
     }
 }
@@ -45,11 +47,14 @@ fn entry_builder(module: &naga::Module, binding: &Binding) -> BindGroupLayoutEnt
             class,
         } => match class {
             ImageClass::Storage { format, access } => {
-                let access = match *access {
-                    StorageAccess::STORE => StorageTextureAccess::WriteOnly,
-                    StorageAccess::LOAD => StorageTextureAccess::ReadOnly,
-                    StorageAccess::LOAD | StorageAccess::STORE => StorageTextureAccess::ReadWrite,
-                    _ => panic!("Unsupported storage access {:?}", access),
+                let access = if access.contains(StorageAccess::LOAD | StorageAccess::STORE) {
+                    StorageTextureAccess::ReadWrite
+                } else if access.contains(StorageAccess::STORE) {
+                    StorageTextureAccess::WriteOnly
+                } else if access.contains(StorageAccess::LOAD) {
+                    StorageTextureAccess::ReadOnly
+                } else {
+                    panic!("Unsupported storage access {:?}", access)
                 };
                 let format = convert_storage_format(*format);
                 let view_dimension = convert_image_dimension(*dim, *arrayed);
@@ -98,7 +103,7 @@ fn entry_builder(module: &naga::Module, binding: &Binding) -> BindGroupLayoutEnt
 
             return sampler(binding_type);
         }
-        TypeInner::Scalar(scalar) => {}
+        TypeInner::Scalar(_scalar) => {}
         _ => {}
     };
 
@@ -147,7 +152,6 @@ mod tests {
     use bevy::render::render_resource::{
         BindingType, BufferBindingType, StorageTextureAccess, TextureFormat, TextureViewDimension,
     };
-    use naga::{ResourceBinding, Type};
 
     #[test]
     fn layout_vec4() {
@@ -176,7 +180,7 @@ mod tests {
     fn layout_texture() {
         let module = naga::front::wgsl::parse_str(
             r#"
-            @group(2) @binding(1) var<uniform> color: texture_2d<f32>;
+            @group(2) @binding(1) var my_texture: texture_2d<f32>;
         "#,
         )
         .unwrap();

@@ -1,4 +1,4 @@
-use naga::{ArraySize, GlobalVariable, ResourceBinding, ScalarKind, Type, TypeInner, VectorSize};
+use naga::{ArraySize, GlobalVariable, Type, TypeInner, VectorSize};
 
 #[derive(Debug, Default, Clone)]
 pub struct Bindings {
@@ -8,7 +8,7 @@ pub struct Bindings {
 
 impl Bindings {
     pub fn new(module: naga::Module) -> Self {
-        let bindings = bindings(&module);
+        let bindings = bindings(&module).collect();
         Self { module, bindings }
     }
 
@@ -26,6 +26,14 @@ impl Bindings {
 
     pub fn iter(&self) -> impl Iterator<Item = &Binding> {
         self.bindings.iter()
+    }
+
+    pub fn get(&self, index: usize) -> Option<&Binding> {
+        self.bindings.get(index)
+    }
+
+    pub fn bindings(&self) -> impl Iterator<Item = Binding> + '_ {
+        self.bindings.iter().cloned()
     }
 }
 
@@ -45,14 +53,14 @@ impl Binding {
 
 pub fn bindings(
     module: &naga::Module,
-) -> Vec<Binding> {
+) -> impl Iterator<Item = Binding> + '_ {
     module
         .global_variables
         .iter()
         .filter(|(_, var)| var.binding.is_some())
-        .map(|(handle, variable)| {
+        .map(move |(_handle, variable)| {
             let binding = variable.binding.as_ref().unwrap();
-            let ty = module.types.get_handle(variable.ty).unwrap();
+            let ty = &module.types[variable.ty];
             Binding {
                 group: binding.group,
                 binding: binding.binding,
@@ -60,7 +68,6 @@ pub fn bindings(
                 ty: ty.clone(),
             }
         })
-        .collect()
 }
 
 pub fn type_size(module: &naga::Module, ty: &naga::Type) -> u64 {
@@ -76,18 +83,20 @@ pub fn type_size(module: &naga::Module, ty: &naga::Type) -> u64 {
         TypeInner::Pointer { .. } => 8,
         TypeInner::ValuePointer { .. } => 8,
         TypeInner::Array { base, size, stride } => {
-            let base_size = type_size(module, module.types.get_handle(*base).unwrap());
+            let base_size = type_size(module, &module.types[*base]);
             let count = match size {
                 ArraySize::Constant(count) => count.get() as u64,
+                ArraySize::Pending(_) => 0,
                 ArraySize::Dynamic => 0,
             };
             let element_size = std::cmp::max(base_size, *stride as u64);
             count * element_size
         }
         TypeInner::Struct { members, span } => {
+            let _ = span;
             let mut offset = 0;
             for member in members {
-                let member_size = type_size(module, module.types.get_handle(member.ty).unwrap());
+                let member_size = type_size(module, &module.types[member.ty]);
                 offset = align_to(offset, 16);
                 offset += member_size;
             }
@@ -96,9 +105,8 @@ pub fn type_size(module: &naga::Module, ty: &naga::Type) -> u64 {
         TypeInner::Image { .. } => 0,
         TypeInner::Sampler { .. } => 0,
         TypeInner::BindingArray { .. } => 0,
-        TypeInner::AccelerationStructure => 8,
-        TypeInner::RayQuery => 0,
-        _ => panic!("Unsupported type {:?}", ty),
+        TypeInner::AccelerationStructure { .. } => 8,
+        TypeInner::RayQuery { .. } => 0,
     }
 }
 
@@ -142,7 +150,7 @@ mod tests {
             }),
         );
         assert_eq!(
-            type_size(&module, module.types.get_handle(i32_type).unwrap()),
+            type_size(&module, &module.types[i32_type]),
             4
         );
 
@@ -154,7 +162,7 @@ mod tests {
             }),
         );
         assert_eq!(
-            type_size(&module, module.types.get_handle(f64_type).unwrap()),
+            type_size(&module, &module.types[f64_type]),
             8
         );
 
@@ -162,11 +170,11 @@ mod tests {
             &mut module,
             TypeInner::Scalar(naga::Scalar {
                 kind: ScalarKind::Bool,
-                width: 4,
+                width: 1,
             }),
         );
         assert_eq!(
-            type_size(&module, module.types.get_handle(bool_type).unwrap()),
+            type_size(&module, &module.types[bool_type]),
             1
         );
     }
@@ -181,12 +189,12 @@ mod tests {
                 size: VectorSize::Bi,
                 scalar: naga::Scalar {
                     kind: ScalarKind::Float,
-                    width: 32,
+                    width: 4,
                 },
             },
         );
         assert_eq!(
-            type_size(&module, module.types.get_handle(vec2_type).unwrap()),
+            type_size(&module, &module.types[vec2_type]),
             8
         );
 
@@ -196,12 +204,12 @@ mod tests {
                 size: VectorSize::Quad,
                 scalar: naga::Scalar {
                     kind: ScalarKind::Sint,
-                    width: 32,
+                    width: 4,
                 },
             },
         );
         assert_eq!(
-            type_size(&module, module.types.get_handle(vec4_type).unwrap()),
+            type_size(&module, &module.types[vec4_type]),
             16
         );
     }
@@ -217,12 +225,12 @@ mod tests {
                 rows: VectorSize::Tri,
                 scalar: naga::Scalar {
                     kind: ScalarKind::Float,
-                    width: 32,
+                    width: 4,
                 },
             },
         );
         assert_eq!(
-            type_size(&module, module.types.get_handle(mat3x3_type).unwrap()),
+            type_size(&module, &module.types[mat3x3_type]),
             36
         );
     }
@@ -235,11 +243,11 @@ mod tests {
             &mut module,
             TypeInner::Atomic(naga::Scalar {
                 kind: ScalarKind::Sint,
-                width: 32,
+                width: 4,
             }),
         );
         assert_eq!(
-            type_size(&module, module.types.get_handle(atomic_i32_type).unwrap()),
+            type_size(&module, &module.types[atomic_i32_type]),
             4
         );
     }
@@ -252,7 +260,7 @@ mod tests {
             &mut module,
             TypeInner::Scalar(naga::Scalar {
                 kind: ScalarKind::Float,
-                width: 32,
+                width: 4,
             }),
         );
         let fixed_array_type = add_type(
@@ -264,7 +272,7 @@ mod tests {
             },
         );
         assert_eq!(
-            type_size(&module, module.types.get_handle(fixed_array_type).unwrap()),
+            type_size(&module, &module.types[fixed_array_type]),
             40
         );
 
@@ -279,7 +287,7 @@ mod tests {
         assert_eq!(
             type_size(
                 &module,
-                module.types.get_handle(dynamic_array_type).unwrap()
+                &module.types[dynamic_array_type]
             ),
             0
         );
@@ -293,7 +301,7 @@ mod tests {
             &mut module,
             TypeInner::Scalar(naga::Scalar {
                 kind: ScalarKind::Float,
-                width: 32,
+                width: 4,
             }),
         );
         let vec3_type = add_type(
@@ -302,7 +310,7 @@ mod tests {
                 size: VectorSize::Tri,
                 scalar: naga::Scalar {
                     kind: ScalarKind::Float,
-                    width: 32,
+                    width: 4,
                 },
             },
         );
@@ -328,7 +336,7 @@ mod tests {
             },
         );
         assert_eq!(
-            type_size(&module, module.types.get_handle(struct_type).unwrap()),
+            type_size(&module, &module.types[struct_type]),
             32
         );
     }
@@ -349,19 +357,19 @@ mod tests {
             },
         );
         assert_eq!(
-            type_size(&module, module.types.get_handle(image_type).unwrap()),
+            type_size(&module, &module.types[image_type]),
             0
         );
 
         let sampler_type = add_type(&mut module, TypeInner::Sampler { comparison: false });
         assert_eq!(
-            type_size(&module, module.types.get_handle(sampler_type).unwrap()),
+            type_size(&module, &module.types[sampler_type]),
             0
         );
 
-        let accel_struct_type = add_type(&mut module, TypeInner::AccelerationStructure);
+        let accel_struct_type = add_type(&mut module, TypeInner::AccelerationStructure { vertex_return: false });
         assert_eq!(
-            type_size(&module, module.types.get_handle(accel_struct_type).unwrap()),
+            type_size(&module, &module.types[accel_struct_type]),
             8
         );
     }
@@ -370,7 +378,7 @@ mod tests {
     fn test_scalar_size_trait() {
         let i32_scalar = naga::Scalar {
             kind: ScalarKind::Sint,
-            width: 32,
+            width: 4,
         };
         assert_eq!(i32_scalar.width as u64, 4);
 

@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 bevy = { git = "https://github.com/bevyengine/bevy", branch = "main" }
-naga = { version = "22", features = ["wgsl-in", "serialize", "deserialize"] }
+naga = { version = "28", features = ["wgsl-in", "serialize", "deserialize"] }

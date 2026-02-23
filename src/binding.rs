@@ -2,22 +2,21 @@ use crate::module;
 use bevy::asset::Handle;
 use bevy::log::warn;
 use bevy::math::{Mat4, Vec2, Vec3, Vec4};
-use bevy::prelude::info;
-use bevy::reflect::{reflect_trait, FromReflect, GetField, Reflect, ReflectRef, TypeRegistry};
+use bevy::prelude::Image;
+use bevy::reflect::{FromReflect, PartialReflect, ReflectRef};
 use bevy::render::render_asset::RenderAssets;
-use bevy::render::render_resource::encase::private::WriteInto;
-use bevy::render::render_resource::encase::UniformBuffer;
+use bevy::render::render_resource::encase::UniformBuffer as EncaseUniformBuffer;
 use bevy::render::render_resource::{
-    BindingResource, Buffer, BufferInitDescriptor, BufferUsages, OwnedBindingResource, ShaderSize,
+    BufferInitDescriptor, BufferUsages, OwnedBindingResource, SamplerBindingType,
+    TextureViewDimension,
 };
 use bevy::render::renderer::RenderDevice;
-use bevy::render::texture::{GpuImage, Image};
-use naga::{ScalarKind, VectorSize};
-use std::sync::Arc;
+use bevy::render::texture::GpuImage;
+use naga::{ImageDimension, ScalarKind, VectorSize};
 
 pub fn bindings(
     module: &naga::Module,
-    reflected: &dyn Reflect,
+    reflected: &dyn PartialReflect,
     render_device: &RenderDevice,
     gpu_images: &RenderAssets<GpuImage>,
 ) -> Vec<(u32, OwnedBindingResource)> {
@@ -32,10 +31,10 @@ pub fn bindings(
         };
 
         if let Some(field_value) = find_field(reflected, name) {
-            let binding = binding.binding;
+            let binding_idx = binding.binding;
             let resource =
                 generate_binding_resource(field_value, module, &ty, render_device, gpu_images);
-            bindings.push((binding, resource));
+            bindings.push((binding_idx, resource));
         } else {
             warn!("Field not found in reflected type: {:?}", name);
         }
@@ -44,7 +43,7 @@ pub fn bindings(
     bindings
 }
 
-fn find_field<'a>(reflected: &'a dyn Reflect, field_name: &str) -> Option<&'a dyn Reflect> {
+fn find_field<'a>(reflected: &'a dyn PartialReflect, field_name: &str) -> Option<&'a dyn PartialReflect> {
     let ReflectRef::Struct(reflect_struct) = reflected.reflect_ref() else {
         warn!("Cannot reflect struct for binding",);
         return None;
@@ -54,29 +53,43 @@ fn find_field<'a>(reflected: &'a dyn Reflect, field_name: &str) -> Option<&'a dy
 }
 
 fn generate_binding_resource(
-    field_value: &dyn Reflect,
+    field_value: &dyn PartialReflect,
     module: &naga::Module,
     ty: &naga::Type,
     render_device: &RenderDevice,
     gpu_images: &RenderAssets<GpuImage>,
 ) -> OwnedBindingResource {
     match &ty.inner {
-        naga::TypeInner::Image { .. } => {
+        naga::TypeInner::Image { dim, arrayed, .. } => {
             let handle = field_value
                 .try_downcast_ref::<Handle<Image>>()
                 .expect("Field value is not an image");
             let image = gpu_images.get(handle).unwrap();
-            OwnedBindingResource::TextureView(image.texture_view.clone())
+            let view_dimension = match (dim, arrayed) {
+                (ImageDimension::D1, false) => TextureViewDimension::D1,
+                (ImageDimension::D2, false) => TextureViewDimension::D2,
+                (ImageDimension::D2, true) => TextureViewDimension::D2Array,
+                (ImageDimension::D3, false) => TextureViewDimension::D3,
+                (ImageDimension::Cube, false) => TextureViewDimension::Cube,
+                (ImageDimension::Cube, true) => TextureViewDimension::CubeArray,
+                _ => TextureViewDimension::D2,
+            };
+            OwnedBindingResource::TextureView(view_dimension, image.texture_view.clone())
         }
-        naga::TypeInner::Sampler { .. } => {
+        naga::TypeInner::Sampler { comparison } => {
             let handle = field_value
                 .try_downcast_ref::<Handle<Image>>()
                 .expect("Field value is not an image");
             let image = gpu_images.get(handle).unwrap();
-            OwnedBindingResource::Sampler(image.sampler.clone())
+            let binding_type = if *comparison {
+                SamplerBindingType::Comparison
+            } else {
+                SamplerBindingType::Filtering
+            };
+            OwnedBindingResource::Sampler(binding_type, image.sampler.clone())
         }
         _ => {
-            let mut buffer = UniformBuffer::new(Vec::new());
+            let mut buffer = EncaseUniformBuffer::new(Vec::new());
             write_to_buffer(field_value, module, ty, &mut buffer);
             OwnedBindingResource::Buffer(render_device.create_buffer_with_data(
                 &BufferInitDescriptor {
@@ -90,10 +103,10 @@ fn generate_binding_resource(
 }
 
 fn write_to_buffer(
-    field_value: &dyn Reflect,
+    field_value: &dyn PartialReflect,
     module: &naga::Module,
     ty: &naga::Type,
-    buffer: &mut UniformBuffer<Vec<u8>>,
+    buffer: &mut EncaseUniformBuffer<Vec<u8>>,
 ) {
     match &ty.inner {
         naga::TypeInner::Scalar(scalar) => match scalar.kind {
@@ -137,10 +150,7 @@ fn write_to_buffer(
             let ReflectRef::Array(array) = field_value.reflect_ref() else {
                 panic!("Field value is not an array");
             };
-            let base = module
-                .types
-                .get_handle(*base)
-                .expect("Array base type not found");
+            let base = &module.types[*base];
             for item in array.iter() {
                 write_to_buffer(item, module, base, buffer);
             }
@@ -155,11 +165,8 @@ fn write_to_buffer(
                 };
 
                 if let Some(field) = reflect_struct.field(&name) {
-                    let member_ty = module
-                        .types
-                        .get_handle(member.ty)
-                        .expect("Struct member type not found");
-                    write_to_buffer(field, module, &member_ty, buffer);
+                    let member_ty = &module.types[member.ty];
+                    write_to_buffer(field, module, member_ty, buffer);
                 } else {
                     panic!("Struct field not found: {:?}", member.name);
                 }
