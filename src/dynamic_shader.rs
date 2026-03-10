@@ -3,8 +3,9 @@ use bevy::math::{Mat4, Vec2, Vec3, Vec4};
 use bevy::reflect::structs::{DynamicStruct, FieldIter, Struct, StructInfo};
 use bevy::reflect::utility::NonGenericTypeInfoCell;
 use bevy::reflect::{
-    ApplyError, FromReflect, FromType, GetTypeRegistration, PartialReflect, Reflect, ReflectFromPtr,
-    ReflectKind, ReflectMut, ReflectOwned, ReflectRef, TypeInfo, TypePath, TypeRegistration, Typed,
+    ApplyError, FromReflect, FromType, GetTypeRegistration, PartialReflect, Reflect,
+    ReflectFromPtr, ReflectKind, ReflectMut, ReflectOwned, ReflectRef, TypeInfo, TypePath,
+    TypeRegistration, Typed,
 };
 use naga::{ArraySize, ScalarKind, StructMember, Type, TypeInner, VectorSize};
 use std::any::Any;
@@ -109,12 +110,7 @@ impl DynamicShader {
     }
 }
 
-fn insert_default_value(
-    module: &naga::Module,
-    storage: &mut DynamicStruct,
-    name: &str,
-    ty: &Type,
-) {
+fn insert_default_value(module: &naga::Module, storage: &mut DynamicStruct, name: &str, ty: &Type) {
     match &ty.inner {
         TypeInner::Scalar(scalar) => match scalar.kind {
             ScalarKind::Sint => storage.insert(name, 0i32),
@@ -263,9 +259,7 @@ fn populate_default_struct(
                 _ => {}
             },
             TypeInner::Vector { size, scalar } => match (size, scalar.kind) {
-                (VectorSize::Bi, ScalarKind::Float) => {
-                    struct_value.insert(member_name, Vec2::ZERO)
-                }
+                (VectorSize::Bi, ScalarKind::Float) => struct_value.insert(member_name, Vec2::ZERO),
                 (VectorSize::Tri, ScalarKind::Float) => {
                     struct_value.insert(member_name, Vec3::ZERO)
                 }

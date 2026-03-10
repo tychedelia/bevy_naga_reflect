@@ -17,7 +17,6 @@ use bevy::render::render_resource::{
 
 use std::num::NonZeroU64;
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypeKind {
     Scalar,
@@ -91,9 +90,7 @@ impl Clone for ShaderReflection {
 }
 
 impl ShaderReflection {
-    pub fn new(
-        module: naga::Module,
-    ) -> Result<Self, naga::WithSpan<naga::valid::ValidationError>> {
+    pub fn new(module: naga::Module) -> Result<Self, naga::WithSpan<naga::valid::ValidationError>> {
         let mut validator = Validator::new(ValidationFlags::all(), Capabilities::all());
         let module_info = validator.validate(&module)?;
         let parameters = Self::build_parameters(&module, &module_info);
@@ -113,7 +110,6 @@ impl ShaderReflection {
                 continue;
             };
 
-
             let mut visibility = ShaderStages::NONE;
             for (ep_index, ep) in module.entry_points.iter().enumerate() {
                 let ep_info = module_info.get_entry_point(ep_index);
@@ -128,11 +124,9 @@ impl ShaderReflection {
                 }
             }
 
-
             if visibility == ShaderStages::NONE {
                 continue;
             }
-
 
             let ty = &module.types[variable.ty];
             let category = match &ty.inner {
@@ -169,11 +163,13 @@ impl ShaderReflection {
     }
 
     pub fn parameters(&self) -> impl Iterator<Item = ParameterReflection<'_>> {
-        self.parameters.iter().map(move |cached| ParameterReflection {
-            module: &self.module,
-            module_info: &self.module_info,
-            cached,
-        })
+        self.parameters
+            .iter()
+            .map(move |cached| ParameterReflection {
+                module: &self.module,
+                module_info: &self.module_info,
+                cached,
+            })
     }
 
     pub fn parameter(&self, name: &str) -> Option<ParameterReflection<'_>> {
@@ -185,11 +181,13 @@ impl ShaderReflection {
     }
 
     pub fn parameter_at(&self, index: usize) -> Option<ParameterReflection<'_>> {
-        self.parameters.get(index).map(|cached| ParameterReflection {
-            module: &self.module,
-            module_info: &self.module_info,
-            cached,
-        })
+        self.parameters
+            .get(index)
+            .map(|cached| ParameterReflection {
+                module: &self.module,
+                module_info: &self.module_info,
+                cached,
+            })
     }
 
     pub fn has_parameter(&self, name: &str) -> bool {
@@ -223,13 +221,14 @@ impl ShaderReflection {
 
     pub fn create_bindings(
         &self,
+        group: u32,
         reflected: &dyn bevy::reflect::PartialReflect,
         render_device: &bevy::render::renderer::RenderDevice,
         gpu_images: &bevy::render::render_asset::RenderAssets<bevy::render::texture::GpuImage>,
     ) -> Vec<(u32, bevy::render::render_resource::OwnedBindingResource)> {
         let mut bindings = Vec::new();
 
-        for cached in &self.parameters {
+        for cached in self.parameters.iter().filter(|p| p.group == group) {
             let variable = &self.module.global_variables[cached.var_handle];
             let ty = &self.module.types[cached.type_handle];
             let Some(ref name) = variable.name else {
@@ -350,7 +349,6 @@ impl ParameterReflection<'_> {
         self.cached.var_handle
     }
 }
-
 
 pub struct TypeReflection<'a> {
     module: &'a naga::Module,
@@ -491,7 +489,6 @@ impl<'a> TypeReflection<'a> {
     }
 }
 
-
 pub struct TypeLayout<'a> {
     module: &'a naga::Module,
     ty: &'a naga::Type,
@@ -512,7 +509,6 @@ impl TypeLayout<'_> {
         }
     }
 }
-
 
 pub struct FieldReflection<'a> {
     module: &'a naga::Module,
@@ -543,7 +539,6 @@ impl<'a> FieldReflection<'a> {
     }
 }
 
-
 pub struct EntryPointReflection<'a> {
     module_info: &'a ModuleInfo,
     entry_point: &'a naga::EntryPoint,
@@ -568,9 +563,7 @@ impl<'a> EntryPointReflection<'a> {
         let usage = ep_info[param.var_handle()];
         !usage.is_empty()
     }
-
 }
-
 
 #[derive(Debug, Clone)]
 pub struct ShaderDiff {
@@ -579,7 +572,6 @@ pub struct ShaderDiff {
     pub retained: Vec<String>,
     pub type_changed: Vec<(String, TypeKind, TypeKind)>,
 }
-
 
 fn vector_size_to_u32(size: &VectorSize) -> u32 {
     match size {
@@ -757,13 +749,11 @@ fn convert_image_dimension(dim: ImageDimension, arrayed: bool) -> TextureViewDim
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use naga::{Handle, Module, ScalarKind, Type, TypeInner, VectorSize};
     use std::num::NonZeroU32;
-
 
     fn create_module() -> Module {
         Module::default()
@@ -973,7 +963,6 @@ mod tests {
         );
         assert_eq!(type_size(&module, &module.types[accel_struct_type]), 8);
     }
-
 
     use bevy::render::render_resource::{BindingType, BufferBindingType};
 
@@ -1301,7 +1290,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn visibility_fragment_only() {
         let reflection = reflect(
@@ -1394,7 +1382,6 @@ mod tests {
         assert!(reflection.parameter("value").is_none());
     }
 
-
     #[test]
     fn diff_added_parameter() {
         let old = reflect(
@@ -1466,7 +1453,6 @@ mod tests {
         assert_eq!(diff.type_changed[0].1, TypeKind::Scalar);
         assert_eq!(diff.type_changed[0].2, TypeKind::Vector);
     }
-
 
     #[test]
     fn type_reflection_scalar() {
@@ -1630,7 +1616,6 @@ mod tests {
         assert!(param.ty().is_comparison_sampler());
     }
 
-
     #[test]
     fn parameter_category_uniform() {
         let reflection = reflect(
@@ -1685,7 +1670,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn entry_point_reflection() {
         let reflection = reflect(
@@ -1715,7 +1699,6 @@ mod tests {
         assert!(!eps[0].uses_parameter(&color));
         assert!(eps[1].uses_parameter(&color));
     }
-
 
     #[test]
     fn type_layout_size() {
