@@ -80,6 +80,10 @@ impl DynamicShader {
         Ok(())
     }
 
+    pub fn insert<T: Reflect>(&mut self, name: &str, value: T) {
+        self.storage.insert(name, value);
+    }
+
     pub fn get<T: 'static>(&self, name: &str) -> Option<&T> {
         self.field(name)
             .and_then(|field| field.try_downcast_ref::<T>())

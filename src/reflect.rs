@@ -225,6 +225,7 @@ impl ShaderReflection {
         reflected: &dyn bevy::reflect::PartialReflect,
         render_device: &bevy::render::renderer::RenderDevice,
         gpu_images: &bevy::render::render_asset::RenderAssets<bevy::render::texture::GpuImage>,
+        gpu_buffers: &bevy::render::render_asset::RenderAssets<bevy::render::storage::GpuShaderBuffer>,
     ) -> Vec<(u32, bevy::render::render_resource::OwnedBindingResource)> {
         let mut bindings = Vec::new();
 
@@ -246,6 +247,7 @@ impl ShaderReflection {
                 ty,
                 render_device,
                 gpu_images,
+                gpu_buffers,
             );
             bindings.push((cached.binding, resource));
         }

@@ -10,10 +10,11 @@ use bevy::render::render_resource::{
     TextureViewDimension,
 };
 use bevy::render::renderer::RenderDevice;
+use bevy::render::storage::{GpuShaderBuffer, ShaderBuffer};
 use bevy::render::texture::GpuImage;
 use naga::{ImageDimension, ScalarKind, VectorSize};
 
-pub(crate) fn find_field<'a>(
+pub fn find_field<'a>(
     reflected: &'a dyn PartialReflect,
     field_name: &str,
 ) -> Option<&'a dyn PartialReflect> {
@@ -24,12 +25,13 @@ pub(crate) fn find_field<'a>(
     reflect_struct.field(field_name)
 }
 
-pub(crate) fn generate_binding_resource(
+pub fn generate_binding_resource(
     field_value: &dyn PartialReflect,
     module: &naga::Module,
     ty: &naga::Type,
     render_device: &RenderDevice,
     gpu_images: &RenderAssets<GpuImage>,
+    gpu_buffers: &RenderAssets<GpuShaderBuffer>,
 ) -> OwnedBindingResource {
     match &ty.inner {
         naga::TypeInner::Image { dim, arrayed, .. } => {
@@ -61,6 +63,12 @@ pub(crate) fn generate_binding_resource(
             OwnedBindingResource::Sampler(binding_type, image.sampler.clone())
         }
         _ => {
+            if let Some(handle) = field_value.try_downcast_ref::<Handle<ShaderBuffer>>() {
+                if let Some(gpu_buffer) = gpu_buffers.get(handle) {
+                    return OwnedBindingResource::Buffer(gpu_buffer.buffer.clone());
+                }
+            }
+
             let mut buffer = EncaseUniformBuffer::new(Vec::new());
             write_to_buffer(field_value, module, ty, &mut buffer);
             OwnedBindingResource::Buffer(render_device.create_buffer_with_data(
@@ -74,7 +82,7 @@ pub(crate) fn generate_binding_resource(
     }
 }
 
-pub(crate) fn write_to_buffer(
+pub fn write_to_buffer(
     field_value: &dyn PartialReflect,
     module: &naga::Module,
     ty: &naga::Type,
