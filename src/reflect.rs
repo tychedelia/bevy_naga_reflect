@@ -32,6 +32,7 @@ pub enum TypeKind {
     BindingArray,
     AccelerationStructure,
     RayQuery,
+    CooperativeMatrix,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -373,6 +374,7 @@ impl<'a> TypeReflection<'a> {
             TypeInner::BindingArray { .. } => TypeKind::BindingArray,
             TypeInner::AccelerationStructure { .. } => TypeKind::AccelerationStructure,
             TypeInner::RayQuery { .. } => TypeKind::RayQuery,
+            TypeInner::CooperativeMatrix { .. } => TypeKind::CooperativeMatrix,
         }
     }
 
@@ -623,6 +625,7 @@ pub(crate) fn type_size(module: &naga::Module, ty: &naga::Type) -> u64 {
         | TypeInner::BindingArray { .. }
         | TypeInner::RayQuery { .. } => 0,
         TypeInner::AccelerationStructure { .. } => 8,
+        TypeInner::CooperativeMatrix { .. } => 0,
     }
 }
 
