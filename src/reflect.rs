@@ -223,10 +223,12 @@ impl ShaderReflection {
     pub fn create_bindings(
         &self,
         group: u32,
-        reflected: &dyn bevy::reflect::PartialReflect,
+        shader: &crate::dynamic_shader::DynamicShader,
         render_device: &bevy::render::renderer::RenderDevice,
         gpu_images: &bevy::render::render_asset::RenderAssets<bevy::render::texture::GpuImage>,
-        gpu_buffers: &bevy::render::render_asset::RenderAssets<bevy::render::storage::GpuShaderBuffer>,
+        gpu_buffers: &bevy::render::render_asset::RenderAssets<
+            bevy::render::storage::GpuShaderBuffer,
+        >,
     ) -> Vec<(u32, bevy::render::render_resource::OwnedBindingResource)> {
         let mut bindings = Vec::new();
 
@@ -237,7 +239,27 @@ impl ShaderReflection {
                 continue;
             };
 
-            let Some(field_value) = crate::binding::find_field(reflected, name) else {
+            if let Some(handle) = shader.buffer_handle(name) {
+                if let Some(gpu_buffer) = gpu_buffers.get(handle) {
+                    bindings.push((
+                        cached.binding,
+                        bevy::render::render_resource::OwnedBindingResource::Buffer(
+                            gpu_buffer.buffer.clone(),
+                        ),
+                    ));
+                    continue;
+                }
+            }
+
+            if let Some(handle) = shader.image_handle(name) {
+                if let Some(gpu_image) = gpu_images.get(handle) {
+                    let resource = crate::binding::generate_image_binding(ty, gpu_image);
+                    bindings.push((cached.binding, resource));
+                    continue;
+                }
+            }
+
+            let Some(field_value) = crate::binding::find_field(shader, name) else {
                 bevy::log::warn!("Field not found in reflected type: {:?}", name);
                 continue;
             };

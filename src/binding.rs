@@ -25,6 +25,35 @@ pub fn find_field<'a>(
     reflect_struct.field(field_name)
 }
 
+pub fn generate_image_binding(
+    ty: &naga::Type,
+    image: &GpuImage,
+) -> OwnedBindingResource {
+    match &ty.inner {
+        naga::TypeInner::Image { dim, arrayed, .. } => {
+            let view_dimension = match (dim, arrayed) {
+                (ImageDimension::D1, false) => TextureViewDimension::D1,
+                (ImageDimension::D2, false) => TextureViewDimension::D2,
+                (ImageDimension::D2, true) => TextureViewDimension::D2Array,
+                (ImageDimension::D3, false) => TextureViewDimension::D3,
+                (ImageDimension::Cube, false) => TextureViewDimension::Cube,
+                (ImageDimension::Cube, true) => TextureViewDimension::CubeArray,
+                _ => TextureViewDimension::D2,
+            };
+            OwnedBindingResource::TextureView(view_dimension, image.texture_view.clone())
+        }
+        naga::TypeInner::Sampler { comparison } => {
+            let binding_type = if *comparison {
+                SamplerBindingType::Comparison
+            } else {
+                SamplerBindingType::Filtering
+            };
+            OwnedBindingResource::Sampler(binding_type, image.sampler.clone())
+        }
+        _ => panic!("generate_image_binding called with non-image/sampler type"),
+    }
+}
+
 pub fn generate_binding_resource(
     field_value: &dyn PartialReflect,
     module: &naga::Module,

@@ -1,5 +1,7 @@
 use crate::reflect::ShaderReflection;
+use bevy::asset::Handle;
 use bevy::math::{Mat4, Vec2, Vec3, Vec4};
+use bevy::prelude::Image;
 use bevy::reflect::structs::{DynamicStruct, FieldIter, Struct, StructInfo};
 use bevy::reflect::utility::NonGenericTypeInfoCell;
 use bevy::reflect::{
@@ -7,14 +9,18 @@ use bevy::reflect::{
     ReflectFromPtr, ReflectKind, ReflectMut, ReflectOwned, ReflectRef, TypeInfo, TypePath,
     TypeRegistration, Typed,
 };
+use bevy::render::storage::ShaderBuffer;
 use naga::{ArraySize, ScalarKind, StructMember, Type, TypeInner, VectorSize};
 use std::any::Any;
+use std::collections::HashMap;
 use std::fmt::Formatter;
 
 #[derive(TypePath, Debug)]
 pub struct DynamicShader {
     reflection: ShaderReflection,
     storage: DynamicStruct,
+    buffer_handles: HashMap<String, Handle<ShaderBuffer>>,
+    image_handles: HashMap<String, Handle<Image>>,
 }
 
 impl Default for DynamicShader {
@@ -22,6 +28,8 @@ impl Default for DynamicShader {
         Self {
             reflection: ShaderReflection::default(),
             storage: DynamicStruct::default(),
+            buffer_handles: HashMap::new(),
+            image_handles: HashMap::new(),
         }
     }
 }
@@ -37,6 +45,8 @@ impl Clone for DynamicShader {
         Self {
             reflection: self.reflection.clone(),
             storage: self.storage.to_dynamic_struct(),
+            buffer_handles: self.buffer_handles.clone(),
+            image_handles: self.image_handles.clone(),
         }
     }
 }
@@ -47,11 +57,21 @@ impl DynamicShader {
         Ok(Self {
             reflection,
             storage: DynamicStruct::default(),
+            buffer_handles: HashMap::new(),
+            image_handles: HashMap::new(),
         })
     }
 
     pub fn reflection(&self) -> &ShaderReflection {
         &self.reflection
+    }
+
+    pub fn buffer_handle(&self, name: &str) -> Option<&Handle<ShaderBuffer>> {
+        self.buffer_handles.get(name)
+    }
+
+    pub fn image_handle(&self, name: &str) -> Option<&Handle<Image>> {
+        self.image_handles.get(name)
     }
 
     pub fn set_module(
@@ -81,6 +101,15 @@ impl DynamicShader {
     }
 
     pub fn insert<T: Reflect>(&mut self, name: &str, value: T) {
+        let any = &value as &dyn Any;
+        if let Some(handle) = any.downcast_ref::<Handle<ShaderBuffer>>() {
+            self.buffer_handles.insert(name.to_string(), handle.clone());
+            return;
+        }
+        if let Some(handle) = any.downcast_ref::<Handle<Image>>() {
+            self.image_handles.insert(name.to_string(), handle.clone());
+            return;
+        }
         self.storage.insert(name, value);
     }
 
