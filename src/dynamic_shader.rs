@@ -14,10 +14,11 @@ use naga::{ArraySize, ScalarKind, StructMember, Type, TypeInner, VectorSize};
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt::Formatter;
+use std::sync::Arc;
 
 #[derive(TypePath, Debug)]
 pub struct DynamicShader {
-    reflection: ShaderReflection,
+    reflection: Arc<ShaderReflection>,
     storage: DynamicStruct,
     buffer_handles: HashMap<String, Handle<ShaderBuffer>>,
     image_handles: HashMap<String, Handle<Image>>,
@@ -26,7 +27,7 @@ pub struct DynamicShader {
 impl Default for DynamicShader {
     fn default() -> Self {
         Self {
-            reflection: ShaderReflection::default(),
+            reflection: Arc::new(ShaderReflection::default()),
             storage: DynamicStruct::default(),
             buffer_handles: HashMap::new(),
             image_handles: HashMap::new(),
@@ -43,7 +44,7 @@ impl FromReflect for DynamicShader {
 impl Clone for DynamicShader {
     fn clone(&self) -> Self {
         Self {
-            reflection: self.reflection.clone(),
+            reflection: Arc::clone(&self.reflection),
             storage: self.storage.to_dynamic_struct(),
             buffer_handles: self.buffer_handles.clone(),
             image_handles: self.image_handles.clone(),
@@ -53,7 +54,7 @@ impl Clone for DynamicShader {
 
 impl DynamicShader {
     pub fn new(module: naga::Module) -> Result<Self, naga::WithSpan<naga::valid::ValidationError>> {
-        let reflection = ShaderReflection::new(module)?;
+        let reflection = Arc::new(ShaderReflection::new(module)?);
         Ok(Self {
             reflection,
             storage: DynamicStruct::default(),
@@ -78,7 +79,7 @@ impl DynamicShader {
         &mut self,
         module: naga::Module,
     ) -> Result<(), naga::WithSpan<naga::valid::ValidationError>> {
-        self.reflection = ShaderReflection::new(module)?;
+        self.reflection = Arc::new(ShaderReflection::new(module)?);
         Ok(())
     }
 
