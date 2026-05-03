@@ -4,7 +4,7 @@ use bevy::math::{Mat4, Vec2, Vec3, Vec4};
 use bevy::prelude::Image;
 use bevy::reflect::{FromReflect, PartialReflect, ReflectRef};
 use bevy::render::render_asset::RenderAssets;
-use bevy::render::render_resource::encase::UniformBuffer as EncaseUniformBuffer;
+use crate::reflect::{type_align, type_size};
 use bevy::render::render_resource::{
     BufferInitDescriptor, BufferUsages, OwnedBindingResource, SamplerBindingType,
     TextureViewDimension,
@@ -98,51 +98,79 @@ pub fn generate_binding_resource(
                 }
             }
 
-            let mut buffer = EncaseUniformBuffer::new(Vec::new());
+            let mut buffer: Vec<u8> = Vec::new();
             write_to_buffer(field_value, module, ty, &mut buffer);
             OwnedBindingResource::Buffer(render_device.create_buffer_with_data(
                 &BufferInitDescriptor {
                     label: None,
                     usage: BufferUsages::COPY_DST | BufferUsages::UNIFORM,
-                    contents: buffer.as_ref(),
+                    contents: &buffer,
                 },
             ))
         }
     }
 }
 
+/// Encode a reflected value into raw bytes following WGSL uniform-space memory
+/// layout. Compound types (struct, array) insert padding between elements per
+/// the alignment rules in [`type_align`].
+///
+/// `buffer` is appended to; the caller decides how to use the resulting bytes.
 pub fn write_to_buffer(
     field_value: &dyn PartialReflect,
     module: &naga::Module,
     ty: &naga::Type,
-    buffer: &mut EncaseUniformBuffer<Vec<u8>>,
+    buffer: &mut Vec<u8>,
 ) {
     match &ty.inner {
         naga::TypeInner::Scalar(scalar) => match scalar.kind {
-            ScalarKind::Sint => buffer
-                .write(field_value.try_downcast_ref::<i32>().unwrap())
-                .unwrap(),
-            ScalarKind::Uint => buffer
-                .write(field_value.try_downcast_ref::<u32>().unwrap())
-                .unwrap(),
-            ScalarKind::Float => buffer
-                .write(field_value.try_downcast_ref::<f32>().unwrap())
-                .unwrap(),
-            ScalarKind::Bool => buffer
-                .write(field_value.try_downcast_ref::<u32>().unwrap())
-                .unwrap(),
+            ScalarKind::Sint => {
+                let v = field_value.try_downcast_ref::<i32>().unwrap();
+                buffer.extend_from_slice(&v.to_le_bytes());
+            }
+            ScalarKind::Uint => {
+                let v = field_value.try_downcast_ref::<u32>().unwrap();
+                buffer.extend_from_slice(&v.to_le_bytes());
+            }
+            ScalarKind::Float => {
+                let v = field_value.try_downcast_ref::<f32>().unwrap();
+                buffer.extend_from_slice(&v.to_le_bytes());
+            }
+            ScalarKind::Bool => {
+                let v = field_value
+                    .try_downcast_ref::<u32>()
+                    .copied()
+                    .or_else(|| {
+                        field_value
+                            .try_downcast_ref::<bool>()
+                            .map(|b| if *b { 1u32 } else { 0u32 })
+                    })
+                    .unwrap();
+                buffer.extend_from_slice(&v.to_le_bytes());
+            }
             _ => panic!("Unsupported scalar type: {:?}", ty),
         },
         naga::TypeInner::Vector { size, scalar } => match (size, scalar.kind) {
-            (VectorSize::Bi, ScalarKind::Float) => buffer
-                .write(&Vec2::from_reflect(field_value).unwrap())
-                .unwrap(),
-            (VectorSize::Tri, ScalarKind::Float) => buffer
-                .write(&Vec3::from_reflect(field_value).unwrap())
-                .unwrap(),
-            (VectorSize::Quad, ScalarKind::Float) => buffer
-                .write(&Vec4::from_reflect(field_value).unwrap())
-                .unwrap(),
+            (VectorSize::Bi, ScalarKind::Float) => {
+                let v = Vec2::from_reflect(field_value).unwrap();
+                buffer.extend_from_slice(&v.x.to_le_bytes());
+                buffer.extend_from_slice(&v.y.to_le_bytes());
+            }
+            (VectorSize::Tri, ScalarKind::Float) => {
+                let v = Vec3::from_reflect(field_value).unwrap();
+                buffer.extend_from_slice(&v.x.to_le_bytes());
+                buffer.extend_from_slice(&v.y.to_le_bytes());
+                buffer.extend_from_slice(&v.z.to_le_bytes());
+                // Note: vec3 has size 12 / align 16. The 4-byte tail padding is
+                // inserted by the parent (struct member alignment, array stride)
+                // — never inline here.
+            }
+            (VectorSize::Quad, ScalarKind::Float) => {
+                let v = Vec4::from_reflect(field_value).unwrap();
+                for c in [v.x, v.y, v.z, v.w] {
+                    buffer.extend_from_slice(&c.to_le_bytes());
+                }
+            }
             _ => panic!("Unsupported vector type: {:?}", ty),
         },
         naga::TypeInner::Matrix {
@@ -150,37 +178,70 @@ pub fn write_to_buffer(
             rows,
             scalar,
         } => match (columns, rows, scalar.kind) {
-            (VectorSize::Quad, VectorSize::Quad, ScalarKind::Float) => buffer
-                .write(field_value.try_downcast_ref::<Mat4>().unwrap())
-                .unwrap(),
+            (VectorSize::Quad, VectorSize::Quad, ScalarKind::Float) => {
+                let m = field_value.try_downcast_ref::<Mat4>().unwrap();
+                let cols = [m.x_axis, m.y_axis, m.z_axis, m.w_axis];
+                for col in cols {
+                    for c in [col.x, col.y, col.z, col.w] {
+                        buffer.extend_from_slice(&c.to_le_bytes());
+                    }
+                }
+            }
             _ => panic!("Unsupported matrix type: {:?}", ty),
         },
         naga::TypeInner::Array { base, .. } => {
             let ReflectRef::Array(array) = field_value.reflect_ref() else {
                 panic!("Field value is not an array");
             };
-            let base = &module.types[*base];
-            for item in array.iter() {
-                write_to_buffer(item, module, base, buffer);
+            let base_ty = &module.types[*base];
+            let element_size = type_size(module, base_ty);
+            let element_align = type_align(module, base_ty);
+            let stride = align_up(element_size, element_align);
+            let array_start = buffer.len();
+            for (i, item) in array.iter().enumerate() {
+                let target = array_start + (i * stride as usize);
+                pad_to(buffer, target);
+                write_to_buffer(item, module, base_ty, buffer);
             }
         }
         naga::TypeInner::Struct { members, .. } => {
             let ReflectRef::Struct(reflect_struct) = field_value.reflect_ref() else {
                 panic!("Field value is not a struct");
             };
+            let struct_start = buffer.len();
+            let struct_size = type_size(module, ty);
             for member in members {
                 let Some(name) = member.name.as_ref() else {
                     panic!("Struct member has no name");
                 };
-
+                let member_ty = &module.types[member.ty];
+                let member_align = type_align(module, member_ty);
+                let cur = (buffer.len() - struct_start) as u64;
+                let target = align_up(cur, member_align);
+                pad_to(buffer, struct_start + target as usize);
                 if let Some(field) = reflect_struct.field(name) {
-                    let member_ty = &module.types[member.ty];
                     write_to_buffer(field, module, member_ty, buffer);
                 } else {
                     panic!("Struct field not found: {:?}", member.name);
                 }
             }
+            // Pad the struct out to its computed total size so the resulting
+            // binding matches `min_binding_size`.
+            pad_to(buffer, struct_start + struct_size as usize);
         }
         _ => {}
+    }
+}
+
+fn align_up(value: u64, alignment: u64) -> u64 {
+    if alignment == 0 {
+        return value;
+    }
+    (value + alignment - 1) & !(alignment - 1)
+}
+
+fn pad_to(buffer: &mut Vec<u8>, target_len: usize) {
+    while buffer.len() < target_len {
+        buffer.push(0);
     }
 }

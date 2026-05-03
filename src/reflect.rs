@@ -611,6 +611,43 @@ fn vector_size_to_u64(size: &VectorSize) -> u64 {
     vector_size_to_u32(size) as u64
 }
 
+/// Natural alignment of a WGSL type when used in a uniform/storage struct.
+/// Follows the WGSL Memory Layout rules:
+/// - scalar: width (typically 4)
+/// - vec2: 2 * width
+/// - vec3 / vec4: 4 * width
+/// - matCxR: align of column vector (4 * width for vec3/vec4 columns)
+/// - struct: max(16, max member alignment)  (the 16 minimum applies to uniform space)
+/// - array: alignment of base type, rounded up per uniform layout rules
+pub(crate) fn type_align(module: &naga::Module, ty: &naga::Type) -> u64 {
+    match &ty.inner {
+        TypeInner::Scalar(scalar) => scalar.width as u64,
+        TypeInner::Vector { size, scalar } => match size {
+            VectorSize::Bi => scalar.width as u64 * 2,
+            VectorSize::Tri | VectorSize::Quad => scalar.width as u64 * 4,
+        },
+        TypeInner::Matrix { rows, scalar, .. } => match rows {
+            VectorSize::Bi => scalar.width as u64 * 2,
+            VectorSize::Tri | VectorSize::Quad => scalar.width as u64 * 4,
+        },
+        TypeInner::Atomic(scalar) => scalar.width as u64,
+        TypeInner::Pointer { .. } | TypeInner::ValuePointer { .. } => 8,
+        TypeInner::Array { base, .. } => {
+            // For uniform-space arrays the element stride is rounded up to 16,
+            // so the array alignment is also at least 16. For storage this is
+            // a conservative over-estimate (max alignment, never under).
+            type_align(module, &module.types[*base]).max(16)
+        }
+        TypeInner::Struct { members, .. } => members
+            .iter()
+            .map(|m| type_align(module, &module.types[m.ty]))
+            .max()
+            .unwrap_or(16)
+            .max(16),
+        _ => 16,
+    }
+}
+
 pub(crate) fn type_size(module: &naga::Module, ty: &naga::Type) -> u64 {
     match &ty.inner {
         TypeInner::Scalar(scalar) => scalar.width as u64,
@@ -635,12 +672,15 @@ pub(crate) fn type_size(module: &naga::Module, ty: &naga::Type) -> u64 {
         }
         TypeInner::Struct { members, .. } => {
             let mut offset = 0;
+            let struct_align = type_align(module, ty);
             for member in members {
-                let member_size = type_size(module, &module.types[member.ty]);
-                offset = align_to(offset, 16);
+                let member_ty = &module.types[member.ty];
+                let member_align = type_align(module, member_ty);
+                let member_size = type_size(module, member_ty);
+                offset = align_to(offset, member_align);
                 offset += member_size;
             }
-            align_to(offset, 16)
+            align_to(offset, struct_align)
         }
         TypeInner::Image { .. }
         | TypeInner::Sampler { .. }
