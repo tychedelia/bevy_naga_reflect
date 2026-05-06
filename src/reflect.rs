@@ -259,6 +259,15 @@ impl ShaderReflection {
                 }
             }
 
+            // Storage parameters are bound externally. The default field value
+            // (e.g. an empty `Vec<f32>` for `array<f32>`) doesn't represent a
+            // valid GPU storage buffer, and the inline-encode path below would
+            // produce a UNIFORM binding with mismatched type. Leave the entry
+            // empty; the caller is expected to supply the buffer.
+            if matches!(cached.category, ParameterCategory::Storage { .. }) {
+                continue;
+            }
+
             let Some(field_value) = crate::binding::find_field(shader, name) else {
                 bevy::log::warn!("Field not found in reflected type: {:?}", name);
                 continue;
