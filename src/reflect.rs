@@ -251,6 +251,23 @@ impl ShaderReflection {
                 }
             }
 
+            // Raw texture views / samplers are bound ahead of the asset-image path.
+            if let Some(view) = shader.texture_view(name) {
+                bindings.push((
+                    cached.binding,
+                    crate::binding::generate_texture_view_binding(ty, view),
+                ));
+                continue;
+            }
+
+            if let Some(sampler) = shader.sampler(name) {
+                bindings.push((
+                    cached.binding,
+                    crate::binding::generate_sampler_binding(ty, sampler),
+                ));
+                continue;
+            }
+
             if let Some(handle) = shader.image_handle(name) {
                 if let Some(gpu_image) = gpu_images.get(handle) {
                     let resource = crate::binding::generate_image_binding(ty, gpu_image);

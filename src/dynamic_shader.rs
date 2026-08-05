@@ -9,6 +9,7 @@ use bevy::reflect::{
     ReflectFromPtr, ReflectKind, ReflectMut, ReflectOwned, ReflectRef, TypeInfo, TypePath,
     TypeRegistration, Typed,
 };
+use bevy::render::render_resource::{Sampler, TextureView};
 use bevy::render::storage::ShaderBuffer;
 use naga::{ArraySize, ScalarKind, StructMember, Type, TypeInner, VectorSize};
 use std::any::Any;
@@ -22,6 +23,9 @@ pub struct DynamicShader {
     storage: DynamicStruct,
     buffer_handles: HashMap<String, Handle<ShaderBuffer>>,
     image_handles: HashMap<String, Handle<Image>>,
+    /// Takes precedence over `image_handles` for the same parameter.
+    texture_views: HashMap<String, TextureView>,
+    samplers: HashMap<String, Sampler>,
 }
 
 impl Default for DynamicShader {
@@ -31,6 +35,8 @@ impl Default for DynamicShader {
             storage: DynamicStruct::default(),
             buffer_handles: HashMap::new(),
             image_handles: HashMap::new(),
+            texture_views: HashMap::new(),
+            samplers: HashMap::new(),
         }
     }
 }
@@ -48,6 +54,8 @@ impl Clone for DynamicShader {
             storage: self.storage.to_dynamic_struct(),
             buffer_handles: self.buffer_handles.clone(),
             image_handles: self.image_handles.clone(),
+            texture_views: self.texture_views.clone(),
+            samplers: self.samplers.clone(),
         }
     }
 }
@@ -60,6 +68,8 @@ impl DynamicShader {
             storage: DynamicStruct::default(),
             buffer_handles: HashMap::new(),
             image_handles: HashMap::new(),
+            texture_views: HashMap::new(),
+            samplers: HashMap::new(),
         })
     }
 
@@ -73,6 +83,22 @@ impl DynamicShader {
 
     pub fn image_handle(&self, name: &str) -> Option<&Handle<Image>> {
         self.image_handles.get(name)
+    }
+
+    pub fn texture_view(&self, name: &str) -> Option<&TextureView> {
+        self.texture_views.get(name)
+    }
+
+    pub fn sampler(&self, name: &str) -> Option<&Sampler> {
+        self.samplers.get(name)
+    }
+
+    pub fn insert_texture_view(&mut self, name: &str, view: TextureView) {
+        self.texture_views.insert(name.to_string(), view);
+    }
+
+    pub fn insert_sampler(&mut self, name: &str, sampler: Sampler) {
+        self.samplers.insert(name.to_string(), sampler);
     }
 
     pub fn set_module(

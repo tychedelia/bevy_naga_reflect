@@ -1,13 +1,13 @@
+use crate::reflect::{type_align, type_size};
 use bevy::asset::Handle;
 use bevy::log::warn;
 use bevy::math::{Mat4, Vec2, Vec3, Vec4};
 use bevy::prelude::Image;
 use bevy::reflect::{FromReflect, PartialReflect, ReflectRef};
 use bevy::render::render_asset::RenderAssets;
-use crate::reflect::{type_align, type_size};
 use bevy::render::render_resource::{
-    BufferInitDescriptor, BufferUsages, OwnedBindingResource, SamplerBindingType,
-    TextureViewDimension,
+    BufferInitDescriptor, BufferUsages, OwnedBindingResource, Sampler, SamplerBindingType,
+    TextureView, TextureViewDimension,
 };
 use bevy::render::renderer::RenderDevice;
 use bevy::render::storage::{GpuShaderBuffer, ShaderBuffer};
@@ -25,10 +25,7 @@ pub fn find_field<'a>(
     reflect_struct.field(field_name)
 }
 
-pub fn generate_image_binding(
-    ty: &naga::Type,
-    image: &GpuImage,
-) -> OwnedBindingResource {
+pub fn generate_image_binding(ty: &naga::Type, image: &GpuImage) -> OwnedBindingResource {
     match &ty.inner {
         naga::TypeInner::Image { dim, arrayed, .. } => {
             let view_dimension = match (dim, arrayed) {
@@ -52,6 +49,38 @@ pub fn generate_image_binding(
         }
         _ => panic!("generate_image_binding called with non-image/sampler type"),
     }
+}
+
+pub fn generate_texture_view_binding(ty: &naga::Type, view: &TextureView) -> OwnedBindingResource {
+    let naga::TypeInner::Image { dim, arrayed, .. } = &ty.inner else {
+        panic!("generate_texture_view_binding called with non-image type");
+    };
+    let view_dimension = match (dim, arrayed) {
+        (ImageDimension::D1, false) => TextureViewDimension::D1,
+        (ImageDimension::D2, false) => TextureViewDimension::D2,
+        (ImageDimension::D2, true) => TextureViewDimension::D2Array,
+        (ImageDimension::D3, false) => TextureViewDimension::D3,
+        (ImageDimension::Cube, false) => TextureViewDimension::Cube,
+        (ImageDimension::Cube, true) => TextureViewDimension::CubeArray,
+        _ => TextureViewDimension::D2,
+    };
+    OwnedBindingResource::TextureView(view_dimension, view.clone())
+}
+
+pub fn generate_sampler_binding(ty: &naga::Type, sampler: &Sampler) -> OwnedBindingResource {
+    let comparison = matches!(
+        ty.inner,
+        naga::TypeInner::Sampler {
+            comparison: true,
+            ..
+        }
+    );
+    let binding_type = if comparison {
+        SamplerBindingType::Comparison
+    } else {
+        SamplerBindingType::Filtering
+    };
+    OwnedBindingResource::Sampler(binding_type, sampler.clone())
 }
 
 pub fn generate_binding_resource(
