@@ -1,7 +1,7 @@
 use crate::reflect::{type_align, type_size};
 use bevy::asset::Handle;
 use bevy::log::warn;
-use bevy::math::{Mat4, Vec2, Vec3, Vec4};
+use bevy::math::{IVec2, IVec3, IVec4, Mat4, UVec2, UVec3, UVec4, Vec2, Vec3, Vec4};
 use bevy::prelude::Image;
 use bevy::reflect::{FromReflect, PartialReflect, ReflectRef};
 use bevy::render::render_asset::RenderAssets;
@@ -196,6 +196,40 @@ pub fn write_to_buffer(
             }
             (VectorSize::Quad, ScalarKind::Float) => {
                 let v = Vec4::from_reflect(field_value).unwrap();
+                for c in [v.x, v.y, v.z, v.w] {
+                    buffer.extend_from_slice(&c.to_le_bytes());
+                }
+            }
+            (VectorSize::Bi, ScalarKind::Sint) => {
+                let v = IVec2::from_reflect(field_value).unwrap();
+                buffer.extend_from_slice(&v.x.to_le_bytes());
+                buffer.extend_from_slice(&v.y.to_le_bytes());
+            }
+            (VectorSize::Tri, ScalarKind::Sint) => {
+                let v = IVec3::from_reflect(field_value).unwrap();
+                buffer.extend_from_slice(&v.x.to_le_bytes());
+                buffer.extend_from_slice(&v.y.to_le_bytes());
+                buffer.extend_from_slice(&v.z.to_le_bytes());
+            }
+            (VectorSize::Quad, ScalarKind::Sint) => {
+                let v = IVec4::from_reflect(field_value).unwrap();
+                for c in [v.x, v.y, v.z, v.w] {
+                    buffer.extend_from_slice(&c.to_le_bytes());
+                }
+            }
+            (VectorSize::Bi, ScalarKind::Uint) => {
+                let v = UVec2::from_reflect(field_value).unwrap();
+                buffer.extend_from_slice(&v.x.to_le_bytes());
+                buffer.extend_from_slice(&v.y.to_le_bytes());
+            }
+            (VectorSize::Tri, ScalarKind::Uint) => {
+                let v = UVec3::from_reflect(field_value).unwrap();
+                buffer.extend_from_slice(&v.x.to_le_bytes());
+                buffer.extend_from_slice(&v.y.to_le_bytes());
+                buffer.extend_from_slice(&v.z.to_le_bytes());
+            }
+            (VectorSize::Quad, ScalarKind::Uint) => {
+                let v = UVec4::from_reflect(field_value).unwrap();
                 for c in [v.x, v.y, v.z, v.w] {
                     buffer.extend_from_slice(&c.to_le_bytes());
                 }

@@ -1824,4 +1824,92 @@ mod tests {
         let param = reflection.parameter("s").unwrap();
         assert_eq!(param.layout().size(), 32);
     }
+
+    #[test]
+    fn encode_sint_uint_vectors() {
+        let mut module = create_module();
+        let ivec2 = add_type(
+            &mut module,
+            TypeInner::Vector {
+                size: VectorSize::Bi,
+                scalar: naga::Scalar {
+                    kind: ScalarKind::Sint,
+                    width: 4,
+                },
+            },
+        );
+        let uvec4 = add_type(
+            &mut module,
+            TypeInner::Vector {
+                size: VectorSize::Quad,
+                scalar: naga::Scalar {
+                    kind: ScalarKind::Uint,
+                    width: 4,
+                },
+            },
+        );
+
+        let mut buf = Vec::new();
+        crate::binding::write_to_buffer(
+            &bevy::math::IVec2::new(7, -3),
+            &module,
+            &module.types[ivec2],
+            &mut buf,
+        );
+        let mut expected = Vec::new();
+        expected.extend_from_slice(&7i32.to_le_bytes());
+        expected.extend_from_slice(&(-3i32).to_le_bytes());
+        assert_eq!(buf, expected);
+
+        let mut buf = Vec::new();
+        crate::binding::write_to_buffer(
+            &bevy::math::UVec4::new(1, 2, 3, 4),
+            &module,
+            &module.types[uvec4],
+            &mut buf,
+        );
+        let expected: Vec<u8> = [1u32, 2, 3, 4].iter().flat_map(|x| x.to_le_bytes()).collect();
+        assert_eq!(buf, expected);
+    }
+
+    #[test]
+    fn init_defaults_sint_uint_vector_struct() {
+        // Regression: `init()` skipped integer-vector fields, so encoding the
+        // uniform later panicked with "Struct field not found".
+        let module = naga::front::wgsl::parse_str(
+            r#"
+            struct Params {
+                a: vec2<i32>,
+                b: vec2<u32>,
+                c: vec4<i32>,
+                d: vec4<u32>,
+            }
+            @group(0) @binding(0) var<uniform> params: Params;
+            @fragment fn main() -> @location(0) vec4<f32> {
+                return vec4<f32>(f32(params.a.x) + f32(params.b.x) + f32(params.c.w) + f32(params.d.w));
+            }
+        "#,
+        )
+        .unwrap();
+
+        let mut shader = crate::dynamic_shader::DynamicShader::new(module).unwrap();
+        shader.init();
+
+        let reflection = shader.reflection();
+        let module = reflection.module();
+        let param = reflection
+            .parameters()
+            .find(|p| p.group() == 0 && p.binding() == 0)
+            .unwrap();
+        let name = param.name().unwrap().to_string();
+        let ty = &module.types[module.global_variables[param.var_handle()].ty];
+
+        let value = crate::binding::find_field(&shader, &name).unwrap();
+        let mut buffer = Vec::new();
+        crate::binding::write_to_buffer(value, module, ty, &mut buffer);
+
+        // vec2<i32>(8) + vec2<u32>(8) + vec4<i32>(16) + vec4<u32>(16) = 48, zero-initialized.
+        assert_eq!(buffer.len(), 48);
+        assert!(buffer.iter().all(|&b| b == 0));
+    }
 }

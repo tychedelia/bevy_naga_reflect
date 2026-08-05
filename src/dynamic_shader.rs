@@ -1,6 +1,6 @@
 use crate::reflect::ShaderReflection;
 use bevy::asset::Handle;
-use bevy::math::{Mat4, Vec2, Vec3, Vec4};
+use bevy::math::{IVec2, IVec3, IVec4, Mat4, UVec2, UVec3, UVec4, Vec2, Vec3, Vec4};
 use bevy::prelude::Image;
 use bevy::reflect::structs::{DynamicStruct, FieldIter, Struct, StructInfo};
 use bevy::reflect::utility::NonGenericTypeInfoCell;
@@ -183,6 +183,12 @@ fn insert_default_value(module: &naga::Module, storage: &mut DynamicStruct, name
             (VectorSize::Bi, ScalarKind::Float) => storage.insert(name, Vec2::ZERO),
             (VectorSize::Tri, ScalarKind::Float) => storage.insert(name, Vec3::ZERO),
             (VectorSize::Quad, ScalarKind::Float) => storage.insert(name, Vec4::ZERO),
+            (VectorSize::Bi, ScalarKind::Sint) => storage.insert(name, IVec2::ZERO),
+            (VectorSize::Tri, ScalarKind::Sint) => storage.insert(name, IVec3::ZERO),
+            (VectorSize::Quad, ScalarKind::Sint) => storage.insert(name, IVec4::ZERO),
+            (VectorSize::Bi, ScalarKind::Uint) => storage.insert(name, UVec2::ZERO),
+            (VectorSize::Tri, ScalarKind::Uint) => storage.insert(name, UVec3::ZERO),
+            (VectorSize::Quad, ScalarKind::Uint) => storage.insert(name, UVec4::ZERO),
             _ => {}
         },
         TypeInner::Matrix {
@@ -268,6 +274,48 @@ fn insert_default_array(
                     ArraySize::Pending(_) | ArraySize::Dynamic => Vec::new(),
                 },
             ),
+            (VectorSize::Bi, ScalarKind::Sint) => storage.insert(
+                name,
+                match array_size {
+                    ArraySize::Constant(size) => vec![IVec2::ZERO; size.get() as usize],
+                    ArraySize::Pending(_) | ArraySize::Dynamic => Vec::new(),
+                },
+            ),
+            (VectorSize::Tri, ScalarKind::Sint) => storage.insert(
+                name,
+                match array_size {
+                    ArraySize::Constant(size) => vec![IVec3::ZERO; size.get() as usize],
+                    ArraySize::Pending(_) | ArraySize::Dynamic => Vec::new(),
+                },
+            ),
+            (VectorSize::Quad, ScalarKind::Sint) => storage.insert(
+                name,
+                match array_size {
+                    ArraySize::Constant(size) => vec![IVec4::ZERO; size.get() as usize],
+                    ArraySize::Pending(_) | ArraySize::Dynamic => Vec::new(),
+                },
+            ),
+            (VectorSize::Bi, ScalarKind::Uint) => storage.insert(
+                name,
+                match array_size {
+                    ArraySize::Constant(size) => vec![UVec2::ZERO; size.get() as usize],
+                    ArraySize::Pending(_) | ArraySize::Dynamic => Vec::new(),
+                },
+            ),
+            (VectorSize::Tri, ScalarKind::Uint) => storage.insert(
+                name,
+                match array_size {
+                    ArraySize::Constant(size) => vec![UVec3::ZERO; size.get() as usize],
+                    ArraySize::Pending(_) | ArraySize::Dynamic => Vec::new(),
+                },
+            ),
+            (VectorSize::Quad, ScalarKind::Uint) => storage.insert(
+                name,
+                match array_size {
+                    ArraySize::Constant(size) => vec![UVec4::ZERO; size.get() as usize],
+                    ArraySize::Pending(_) | ArraySize::Dynamic => Vec::new(),
+                },
+            ),
             _ => {}
         },
         TypeInner::Matrix {
@@ -325,6 +373,20 @@ fn populate_default_struct(
                 }
                 (VectorSize::Quad, ScalarKind::Float) => {
                     struct_value.insert(member_name, Vec4::ZERO)
+                }
+                (VectorSize::Bi, ScalarKind::Sint) => struct_value.insert(member_name, IVec2::ZERO),
+                (VectorSize::Tri, ScalarKind::Sint) => {
+                    struct_value.insert(member_name, IVec3::ZERO)
+                }
+                (VectorSize::Quad, ScalarKind::Sint) => {
+                    struct_value.insert(member_name, IVec4::ZERO)
+                }
+                (VectorSize::Bi, ScalarKind::Uint) => struct_value.insert(member_name, UVec2::ZERO),
+                (VectorSize::Tri, ScalarKind::Uint) => {
+                    struct_value.insert(member_name, UVec3::ZERO)
+                }
+                (VectorSize::Quad, ScalarKind::Uint) => {
+                    struct_value.insert(member_name, UVec4::ZERO)
                 }
                 _ => {}
             },
