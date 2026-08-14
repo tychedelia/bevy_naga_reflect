@@ -5,7 +5,8 @@ use bevy::prelude::Image;
 use bevy::reflect::structs::{DynamicStruct, FieldIter, Struct, StructInfo};
 use bevy::reflect::utility::NonGenericTypeInfoCell;
 use bevy::reflect::{
-    ApplyError, FromReflect, FromType, GetTypeRegistration, PartialReflect, Reflect,
+    ApplyError, CreateTypeData, FromReflect, GetTypeRegistration, PartialReflect, Reflect,
+    ReflectCloneError,
     ReflectFromPtr, ReflectKind, ReflectMut, ReflectOwned, ReflectRef, TypeInfo, TypePath,
     TypeRegistration, Typed,
 };
@@ -51,7 +52,10 @@ impl Clone for DynamicShader {
     fn clone(&self) -> Self {
         Self {
             reflection: Arc::clone(&self.reflection),
-            storage: self.storage.to_dynamic_struct(),
+            storage: self
+                .storage
+                .to_dynamic_struct()
+                .expect("cloning a DynamicStruct is infallible"),
             buffer_handles: self.buffer_handles.clone(),
             image_handles: self.image_handles.clone(),
             texture_views: self.texture_views.clone(),
@@ -419,7 +423,8 @@ impl Typed for DynamicShader {
 impl GetTypeRegistration for DynamicShader {
     fn get_type_registration() -> TypeRegistration {
         let mut type_registration = TypeRegistration::of::<DynamicShader>();
-        type_registration.insert::<ReflectFromPtr>(FromType::<DynamicShader>::from_type());
+        type_registration
+            .insert::<ReflectFromPtr>(CreateTypeData::<DynamicShader>::create_type_data(()));
         type_registration
     }
 }
@@ -496,7 +501,7 @@ impl Struct for DynamicShader {
         FieldIter::new(self)
     }
 
-    fn to_dynamic_struct(&self) -> DynamicStruct {
+    fn to_dynamic_struct(&self) -> Result<DynamicStruct, ReflectCloneError> {
         self.storage.to_dynamic_struct()
     }
 }
