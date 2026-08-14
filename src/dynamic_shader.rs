@@ -363,7 +363,8 @@ fn populate_default_struct(
         let member_ty = &module.types[member.ty];
         let member_name = member.name.as_ref().expect("Struct member has no name");
         match &member_ty.inner {
-            TypeInner::Scalar(scalar) => match scalar.kind {
+            // Atomics have the same layout as their scalar; reflect them as such.
+            TypeInner::Scalar(scalar) | TypeInner::Atomic(scalar) => match scalar.kind {
                 ScalarKind::Sint => struct_value.insert(member_name, 0i32),
                 ScalarKind::Uint => struct_value.insert(member_name, 0u32),
                 ScalarKind::Float => struct_value.insert(member_name, 0.0f32),
