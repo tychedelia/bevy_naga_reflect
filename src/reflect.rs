@@ -1889,7 +1889,10 @@ mod tests {
             &module.types[uvec4],
             &mut buf,
         );
-        let expected: Vec<u8> = [1u32, 2, 3, 4].iter().flat_map(|x| x.to_le_bytes()).collect();
+        let expected: Vec<u8> = [1u32, 2, 3, 4]
+            .iter()
+            .flat_map(|x| x.to_le_bytes())
+            .collect();
         assert_eq!(buf, expected);
     }
 
