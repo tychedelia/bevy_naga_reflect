@@ -276,6 +276,27 @@ impl ShaderReflection {
                 }
             }
 
+            if matches!(cached.category, ParameterCategory::Sampler) {
+                if let Some(base) = name.strip_suffix("_sampler") {
+                    if let Some(handle) = shader.image_handle(base) {
+                        if let Some(gpu_image) = gpu_images.get(handle) {
+                            bindings.push((
+                                cached.binding,
+                                crate::binding::generate_image_binding(ty, gpu_image),
+                            ));
+                            continue;
+                        }
+                    }
+                }
+                let fallback = render_device
+                    .create_sampler(&bevy::render::render_resource::SamplerDescriptor::default());
+                bindings.push((
+                    cached.binding,
+                    crate::binding::generate_sampler_binding(ty, &fallback),
+                ));
+                continue;
+            }
+
             // Storage parameters are bound externally. The default field value
             // (e.g. an empty `Vec<f32>` for `array<f32>`) doesn't represent a
             // valid GPU storage buffer, and the inline-encode path below would
