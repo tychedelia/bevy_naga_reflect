@@ -8,7 +8,8 @@ use bevy::render::render_resource::binding_types::{
     sampler, storage_buffer_read_only_sized, storage_buffer_sized, texture_1d, texture_2d,
     texture_2d_array, texture_2d_array_multisampled, texture_2d_multisampled, texture_3d,
     texture_3d_multisampled, texture_cube, texture_cube_array, texture_cube_array_multisampled,
-    texture_cube_multisampled, texture_storage_2d, uniform_buffer_sized,
+    texture_cube_multisampled, texture_storage_2d, texture_storage_2d_array, texture_storage_3d,
+    uniform_buffer_sized,
 };
 use bevy::render::render_resource::{
     BindGroupLayoutEntry, BindGroupLayoutEntryBuilder, SamplerBindingType, ShaderStages,
@@ -781,6 +782,8 @@ fn entry_builder(
                 let view_dimension = convert_image_dimension(*dim, *arrayed);
                 match view_dimension {
                     TextureViewDimension::D2 => texture_storage_2d(format, access),
+                    TextureViewDimension::D2Array => texture_storage_2d_array(format, access),
+                    TextureViewDimension::D3 => texture_storage_3d(format, access),
                     _ => panic!("Unsupported storage texture dimension {:?}", view_dimension),
                 }
             }
@@ -844,6 +847,26 @@ fn entry_builder(
 fn convert_storage_format(format: StorageFormat) -> TextureFormat {
     match format {
         StorageFormat::Rgba8Unorm => TextureFormat::Rgba8Unorm,
+        StorageFormat::Rgba8Snorm => TextureFormat::Rgba8Snorm,
+        StorageFormat::Rgba8Uint => TextureFormat::Rgba8Uint,
+        StorageFormat::Rgba8Sint => TextureFormat::Rgba8Sint,
+        // r16float/rg16float storage access is outside base WebGPU; it works
+        // on Metal (and most native adapters) via
+        // Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES, which bevy
+        // requests by default.
+        StorageFormat::R16Float => TextureFormat::R16Float,
+        StorageFormat::Rg16Float => TextureFormat::Rg16Float,
+        StorageFormat::Rgba16Float => TextureFormat::Rgba16Float,
+        StorageFormat::R32Float => TextureFormat::R32Float,
+        StorageFormat::Rg32Float => TextureFormat::Rg32Float,
+        StorageFormat::Rgba32Float => TextureFormat::Rgba32Float,
+        StorageFormat::R32Uint => TextureFormat::R32Uint,
+        StorageFormat::R32Sint => TextureFormat::R32Sint,
+        StorageFormat::Rg32Uint => TextureFormat::Rg32Uint,
+        StorageFormat::Rgba16Uint => TextureFormat::Rgba16Uint,
+        StorageFormat::Rgba16Sint => TextureFormat::Rgba16Sint,
+        StorageFormat::Rgba32Uint => TextureFormat::Rgba32Uint,
+        StorageFormat::Rgba32Sint => TextureFormat::Rgba32Sint,
         _ => panic!("Unsupported storage format {:?}", format),
     }
 }
